@@ -10,6 +10,9 @@
 Registro banco[TAM];
 int cont=0;
 pthread_mutex_t m_banco = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t m_resposta = PTHREAD_MUTEX_INITIALIZER;
+
+void *processar(void *arg);
 
 void print_banco() {
     printf("\n Banco Atual:\n");
@@ -24,10 +27,21 @@ void inserir(int id, const char *nome) {
         banco[cont].id = id;
         strcpy(banco[cont].nome, nome);
         cont++;
-        printf("Inserido: ID=%d Nome=%s\n", id, nome);
-    } else {
-        printf("Banco cheio!\n");
+   }
+}
+
+void *th_inserir(void *arg){
+    char buffer[256];
+    int fd;
+    while(1){
+        fd = open ("/tmp/pipe_inserir",O_RDONLY);
+        while (read(fd,buffer,sizeof(buffer))>0){
+        char *msg = strdup(buffer);
+        processar((void*)msg);
     }
+    close(fd);
+}
+return NULL;
 }
 
 void deletar(int id) {
@@ -35,81 +49,121 @@ void deletar(int id) {
         if (banco[i].id == id) {
             banco[i] = banco[cont - 1];
             cont--;
-            printf("Deletado ID=%d\n", id);
             return;
         }
     }
-    printf("ID %d não encontrado.\n", id);
 }
 
-void selecionar(int id) {
+void *th_deletar(void *arg) {
+    char buffer[256];
+    int fd;
+    while (1) {
+        fd = open("/tmp/pipe_deletar", O_RDONLY);
+        while (read(fd, buffer, sizeof(buffer)) > 0) {
+            char *msg = strdup(buffer);
+            processar((void *)msg);
+        }
+        close(fd);
+    }
+    return NULL;
+
+}
+
+void selecionar(int id, char *resposta, size_t tamanho) {
     for (int i = 0; i < cont; i++) {
         if (banco[i].id == id) {
-            printf("Encontrado: ID=%d Nome=%s\n", banco[i].id, banco[i].nome);
-            return;
+            snprintf(resposta, tamanho, "Selecionado com sucesso: ID = %d, NOME = %s", banco[i].id, banco[i].nome);
+            break;
         }
     }
-    printf("ID %d não encontrado.\n", id);
+}
+
+void *th_selecionar(void *arg) {
+    char buffer[256];
+    int fd;
+    while (1) {
+        fd = open("/tmp/pipe_selecionar", O_RDONLY);
+        while (read(fd, buffer, sizeof(buffer)) > 0) {
+            char *msg = strdup(buffer);
+            processar((void *)msg);
+        }
+        close(fd);
+    }
+    return NULL;
 }
 
 void atualizar(int id, const char *novo_nome) {
     for (int i = 0; i < cont; i++) {
         if (banco[i].id == id) {
             strcpy(banco[i].nome, novo_nome);
-            printf("Atualizado: ID=%d Novo Nome=%s\n", id, novo_nome);
             return;
         }
     }
-    printf("ID %d não encontrado para atualizar.\n", id);
 }
+
+void *th_atualizar(void *arg) {
+    char buffer[256];
+    int fd;
+    while (1) {
+        fd = open("/tmp/pipe_atualizar", O_RDONLY);
+        while (read(fd, buffer, sizeof(buffer)) > 0) {
+            char *msg = strdup(buffer);
+            processar((void *)msg);
+        }
+        close(fd);
+    }
+    return NULL;
+}
+
 
 void *processar(void *arg) {
     char *requisicao = (char *)arg;
+    char resposta[256];
     printf("Requisição recebida: %s\n", requisicao);
     pthread_mutex_lock(&m_banco);
+
+    int id;
+    char nome[50];
 
     int op;
     sscanf(requisicao, "%d", &op);
 
     switch (op) {
-        case 1: { // INSERT
-            int id;
-            char nome[50];
+        case 1: { // INSERIR
             if (sscanf(requisicao, "1 id=%d nome='%49[^']'", &id, nome) == 2) {
                 inserir(id, nome);
+                snprintf(resposta,sizeof(resposta),"Inserido com sucesso: ID = %d, NOME =%s",id,nome);
             } else {
-                printf("Comando INSERT inválido.\n");
+                snprintf(resposta,sizeof(resposta),"Falha! Banco cheio.");
             }
             break;
         }
 
-        case 2: { // DELETE
-            int id;
+        case 2: { // DELETAR
             if (sscanf(requisicao, "2 id=%d", &id) == 1) {
                 deletar(id);
+                snprintf(resposta, sizeof(resposta), "Deletado com sucesso: ID = %d", id);
             } else {
-                printf("Comando DELETE inválido.\n");
+                printf("Comando deletar inválido.\n");
             }
             break;
         }
 
-        case 3: { // SELECT
-            int id;
+        case 3: { // SELECIONAR
             if (sscanf(requisicao, "3 id=%d", &id) == 1) {
-                selecionar(id);
+                selecionar(id, resposta, sizeof(resposta));
             } else {
-                printf("Comando SELECT inválido.\n");
+                snprintf(resposta,sizeof(resposta),"Falha! Id não exsitente no banco.");
             }
             break;
         }
 
-        case 4: { // UPDATE
-            int id;
-            char nome[50];
+        case 4: { // ATUALIZAR
             if (sscanf(requisicao, "4 id=%d nome='%49[^']'", &id, nome) == 2) {
                 atualizar(id, nome);
+                snprintf(resposta,sizeof(resposta),"Atualizado com sucesso: ID = %d, NOME =%s",id,nome);
             } else {
-                printf("Comando UPDATE inválido.\n");
+                snprintf(resposta,sizeof(resposta),"Falha! Id não exsitente no banco.");
             }
             break;
         }
@@ -121,30 +175,39 @@ void *processar(void *arg) {
     print_banco();
 
     pthread_mutex_unlock(&m_banco);
+
+    pthread_mutex_lock(&m_resposta);
+    
+    int fd_resposta = open("/tmp/pipe_resposta", O_WRONLY);
+    write(fd_resposta, resposta, strlen(resposta) + 1);
+    close(fd_resposta);
+    pthread_mutex_unlock(&m_resposta);
+
     free(requisicao);
     return NULL;
 }
 
 
 int main() {
-    char *myfifo = "/tmp/myfifo";
-    mkfifo(myfifo, 0666);
-    char buffer[256];
+    pthread_t t_inserir, t_deletar, t_selecionar, t_atualizar;
+    
+    mkfifo("/tmp/pipe_inserir", 0666);
+    mkfifo("/tmp/pipe_deletar", 0666);
+    mkfifo("/tmp/pipe_selecionar", 0666);
+    mkfifo("/tmp/pipe_atualizar", 0666);
+    mkfifo("/tmp/pipe_resposta",0666);
 
-    while (1) {
-        int fd = open(myfifo, O_RDONLY);
-        if (fd == -1) continue;
-
-        while (read(fd, buffer, sizeof(buffer)) > 0) {
-            char *req = strdup(buffer);
-            pthread_t thread;
-            pthread_create(&thread, NULL, processar, req);
-            pthread_detach(thread);
-        }
-
-        close(fd);
-    }
-
-    unlink(myfifo);
+    // Cria uma thread para cada pipe
+    pthread_create(&t_inserir, NULL, th_inserir, NULL);
+    pthread_create(&t_deletar, NULL, th_deletar, NULL);
+    pthread_create(&t_selecionar, NULL, th_selecionar, NULL);
+    pthread_create(&t_atualizar, NULL, th_atualizar, NULL);
+ 
+     // Aguarda as threads
+    pthread_join(t_inserir, NULL);
+    pthread_join(t_deletar, NULL);
+    pthread_join(t_selecionar, NULL);
+    pthread_join(t_atualizar, NULL);
+ 
     return 0;
 }
