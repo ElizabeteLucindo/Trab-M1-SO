@@ -12,10 +12,11 @@ extern Registro banco [TAM];
 extern pthread_mutex_t m_banco;
 
 
-
-
 ///assinaturas das funções
-
+void inserir(int id, const char *nome);
+void deletar(int id);
+void atualizar(int id, const char *novo_nome);
+void selecionar(int id, char *resposta, size_t tamanho); // novo modelo com resposta
 
 
 #endif
