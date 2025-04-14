@@ -95,7 +95,7 @@ int main()
             perror("Erro ao abrir pipe de resposta");
         }
         read(fd1, resposta, sizeof(resposta));
-        printf(resposta);
+        printf("%s",resposta);
         close(fd1);
     }
     return 0;
