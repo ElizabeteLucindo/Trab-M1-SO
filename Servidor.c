@@ -44,13 +44,18 @@ void *th_inserir(void *arg){
 return NULL;
 }
 
-void deletar(int id) {
+void deletar(int id, char *resposta, size_t tamanho) {
+    int encontrado = 0;
     for (int i = 0; i < cont; i++) {
         if (banco[i].id == id) {
             banco[i] = banco[cont - 1];
             cont--;
-            return;
+            snprintf(resposta, tamanho, "Deletado com sucesso: ID = %d", id);
+            encontrado = 1;
+            break;
         }
+    }if (!encontrado){
+        snprintf(resposta, tamanho, "Erro: ID %d não encontrado no banco.", id);
     }
 }
 
@@ -70,11 +75,16 @@ void *th_deletar(void *arg) {
 }
 
 void selecionar(int id, char *resposta, size_t tamanho) {
+    int encontrado = 0;
     for (int i = 0; i < cont; i++) {
         if (banco[i].id == id) {
             snprintf(resposta, tamanho, "Selecionado com sucesso: ID = %d, NOME = %s", banco[i].id, banco[i].nome);
+            encontrado = 1;
             break;
         }
+    }
+    if (!encontrado){
+        snprintf(resposta, tamanho, "Erro: ID %d não encontrado no banco.", id);
     }
 }
 
@@ -92,12 +102,18 @@ void *th_selecionar(void *arg) {
     return NULL;
 }
 
-void atualizar(int id, const char *novo_nome) {
+void atualizar(int id, const char *novo_nome,  char *resposta, size_t tamanho) {
+    int encontrado = 0;
     for (int i = 0; i < cont; i++) {
         if (banco[i].id == id) {
             strcpy(banco[i].nome, novo_nome);
-            return;
+            encontrado = 1;
+            snprintf(resposta, tamanho, "Atualizado com Sucesso ID %d", id);
+            break;
         }
+    }
+    if (!encontrado){
+        snprintf(resposta, tamanho, "Erro: ID %d não encontrado no banco.", id);
     }
 }
 
@@ -119,7 +135,9 @@ void *th_atualizar(void *arg) {
 void *processar(void *arg) {
     char *requisicao = (char *)arg;
     char resposta[256];
+    memset(resposta, 0, sizeof(resposta));
     printf("Requisição recebida: %s\n", requisicao);
+
     pthread_mutex_lock(&m_banco);
 
     int id;
@@ -141,29 +159,27 @@ void *processar(void *arg) {
 
         case 2: { // DELETAR
             if (sscanf(requisicao, "2 id=%d", &id) == 1) {
-                deletar(id);
-                snprintf(resposta, sizeof(resposta), "Deletado com sucesso: ID = %d", id);
+                deletar(id, resposta, sizeof(resposta));
             } else {
                 printf("Comando deletar inválido.\n");
             }
             break;
         }
 
-        case 3: { // SELECIONAR
+        case 3: {
             if (sscanf(requisicao, "3 id=%d", &id) == 1) {
                 selecionar(id, resposta, sizeof(resposta));
             } else {
-                snprintf(resposta,sizeof(resposta),"Falha! Id não exsitente no banco.");
+                snprintf(resposta,sizeof(resposta),"Comando inválido para seleção.");
             }
             break;
         }
 
         case 4: { // ATUALIZAR
             if (sscanf(requisicao, "4 id=%d nome='%49[^']'", &id, nome) == 2) {
-                atualizar(id, nome);
-                snprintf(resposta,sizeof(resposta),"Atualizado com sucesso: ID = %d, NOME =%s",id,nome);
-            } else {
-                snprintf(resposta,sizeof(resposta),"Falha! Id não exsitente no banco.");
+                atualizar(id, nome, resposta, sizeof(resposta));
+            }else {
+                snprintf(resposta,sizeof(resposta),"Comando inválido para atualização.");
             }
             break;
         }
@@ -197,7 +213,7 @@ int main() {
     mkfifo("/tmp/pipe_atualizar", 0666);
     mkfifo("/tmp/pipe_resposta",0666);
 
-    // Cria uma thread para cada pipe
+    
     pthread_create(&t_inserir, NULL, th_inserir, NULL);
     pthread_create(&t_deletar, NULL, th_deletar, NULL);
     pthread_create(&t_selecionar, NULL, th_selecionar, NULL);
