@@ -14,18 +14,14 @@ void enviar_requisicao(const char *pipe, const char *buffer) {
         perror("Erro ao abrir pipe");
         return;
     }
-    
     write(fd, buffer, strlen(buffer) + 1);  // Envia a mensagem para a pipe
     close(fd);
 }
 
 int main()
 {
- 
     char buffer[256];
-
     printf("Conectado ao servidor. Selecione um comando:\n");
-
     while (1) {
 
         int opcao;
